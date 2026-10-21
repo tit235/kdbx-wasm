@@ -36,26 +36,28 @@ export class JsFileInfo {
   get compression(): 'None' | 'Gzip';
 }
 
+export interface FieldData {
+  readonly value: string | null;
+  readonly protected: boolean;
+  /** Copy field plaintext into JavaScript. Do not log or retain revealed values. */
+  reveal(): string | null | undefined;
+}
+
 export interface KdbxEntry {
-  uuid: string;
-  iconId: number;
-  groupId: string;
-  title: string;
-  username?: string;
-  /**
-   * WARNING: Password is only included when explicitly requested.
-   * When returned, it is plain text and will NOT be automatically
-   * cleared from JavaScript memory. Use sparingly.
-   */
-  password?: string;
-  url?: string;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-  accessedAt: string;
-  expiresAt?: string;
-  tags: string[];
-  customFields: Record<string, string>;
+  readonly uuid: string;
+  readonly iconId: number;
+  readonly groupId: string;
+  readonly tags: readonly string[];
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly accessedAt: string;
+  readonly expiresAt?: string;
+  readonly fields: Readonly<Record<string, FieldData>>;
+  readonly title?: FieldData;
+  readonly username?: FieldData;
+  readonly password?: FieldData;
+  readonly url?: FieldData;
+  readonly notes?: FieldData;
 }
 
 export interface KdbxGroup {
@@ -98,17 +100,15 @@ export class KdbxDatabase {
   /**
    * Get all entries as an array
    *
-   * @param includePassword - Whether to include password fields (default: false)
    */
-  getEntries(includePassword?: boolean): KdbxEntry[];
+  getEntries(): KdbxEntry[];
 
   /**
    * Get a specific entry by UUID
    *
    * @param uuid - The entry UUID
-   * @param includePassword - Whether to include password field (default: false)
    */
-  getEntry(uuid: string, includePassword?: boolean): KdbxEntry;
+  getEntry(uuid: string): KdbxEntry;
 
   /**
    * Get all groups as an array
@@ -126,32 +126,31 @@ export class KdbxDatabase {
    * Get entries in a specific group
    *
    * @param groupUuid - The group UUID
-   * @param includePassword - Whether to include password fields (default: false)
    */
-  getEntriesByGroup(groupUuid: string, includePassword?: boolean): KdbxEntry[];
+  getEntriesByGroup(groupUuid: string): KdbxEntry[];
 
   /**
    * Search entries by keyword
    *
    * @param query - The search query
-   * @param includePassword - Whether to include password fields (default: false)
    */
-  searchEntries(query: string, includePassword?: boolean): KdbxEntry[];
+  searchEntries(query: string): KdbxEntry[];
 
   /**
    * Advanced search with filters
    *
-   * @param query - Text to search across title, username, URL, notes, tags, custom fields
+   * @param query - Text to search across non-protected fields and tags
    * @param groupUuid - Limit search to a specific group
    * @param excludeExpired - Skip expired entries
-   * @param includePassword - Whether to include password fields (default: false)
    */
   searchEntriesAdvanced(
     query?: string,
     groupUuid?: string,
     excludeExpired?: boolean,
-    includePassword?: boolean
   ): KdbxEntry[];
+
+  /** Fetch a field value without storing it in the entry snapshot. */
+  getEntryField(uuid: string, fieldName: string): string | undefined;
 
   /**
    * Get child groups of a specific group

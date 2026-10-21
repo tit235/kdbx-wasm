@@ -1,3 +1,5 @@
+/* @ts-self-types="./kdbx_wasm.d.ts" */
+
 export class JsFileInfo {
     static __wrap(ptr) {
         const obj = Object.create(JsFileInfo.prototype);
@@ -420,11 +422,10 @@ export class KdbxDatabase {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
-     * @param {boolean | null} [include_password]
      * @returns {Array<any>}
      */
-    getEntries(include_password) {
-        const ret = wasm.kdbxdatabase_getEntries(this.__wbg_ptr, isLikeNone(include_password) ? 0xFFFFFF : include_password ? 1 : 0);
+    getEntries() {
+        const ret = wasm.kdbxdatabase_getEntries(this.__wbg_ptr);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -432,13 +433,12 @@ export class KdbxDatabase {
     }
     /**
      * @param {string} group_uuid
-     * @param {boolean | null} [include_password]
      * @returns {Array<any>}
      */
-    getEntriesByGroup(group_uuid, include_password) {
+    getEntriesByGroup(group_uuid) {
         const ptr0 = passStringToWasm0(group_uuid, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.kdbxdatabase_getEntriesByGroup(this.__wbg_ptr, ptr0, len0, isLikeNone(include_password) ? 0xFFFFFF : include_password ? 1 : 0);
+        const ret = wasm.kdbxdatabase_getEntriesByGroup(this.__wbg_ptr, ptr0, len0);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -446,17 +446,37 @@ export class KdbxDatabase {
     }
     /**
      * @param {string} uuid
-     * @param {boolean | null} [include_password]
      * @returns {any}
      */
-    getEntry(uuid, include_password) {
+    getEntry(uuid) {
         const ptr0 = passStringToWasm0(uuid, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.kdbxdatabase_getEntry(this.__wbg_ptr, ptr0, len0, isLikeNone(include_password) ? 0xFFFFFF : include_password ? 1 : 0);
+        const ret = wasm.kdbxdatabase_getEntry(this.__wbg_ptr, ptr0, len0);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
         return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @param {string} uuid
+     * @param {string} field_name
+     * @returns {string | undefined}
+     */
+    getEntryField(uuid, field_name) {
+        const ptr0 = passStringToWasm0(uuid, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(field_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.kdbxdatabase_getEntryField(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        let v3;
+        if (ret[0] !== 0) {
+            v3 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v3;
     }
     /**
      * @param {string} uuid
@@ -570,13 +590,12 @@ export class KdbxDatabase {
     }
     /**
      * @param {string} query
-     * @param {boolean | null} [include_password]
      * @returns {Array<any>}
      */
-    searchEntries(query, include_password) {
+    searchEntries(query) {
         const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.kdbxdatabase_searchEntries(this.__wbg_ptr, ptr0, len0, isLikeNone(include_password) ? 0xFFFFFF : include_password ? 1 : 0);
+        const ret = wasm.kdbxdatabase_searchEntries(this.__wbg_ptr, ptr0, len0);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -586,15 +605,14 @@ export class KdbxDatabase {
      * @param {string | null} [query]
      * @param {string | null} [group_uuid]
      * @param {boolean | null} [exclude_expired]
-     * @param {boolean | null} [include_password]
      * @returns {Array<any>}
      */
-    searchEntriesAdvanced(query, group_uuid, exclude_expired, include_password) {
+    searchEntriesAdvanced(query, group_uuid, exclude_expired) {
         var ptr0 = isLikeNone(query) ? 0 : passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len0 = WASM_VECTOR_LEN;
         var ptr1 = isLikeNone(group_uuid) ? 0 : passStringToWasm0(group_uuid, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len1 = WASM_VECTOR_LEN;
-        const ret = wasm.kdbxdatabase_searchEntriesAdvanced(this.__wbg_ptr, ptr0, len0, ptr1, len1, isLikeNone(exclude_expired) ? 0xFFFFFF : exclude_expired ? 1 : 0, isLikeNone(include_password) ? 0xFFFFFF : include_password ? 1 : 0);
+        const ret = wasm.kdbxdatabase_searchEntriesAdvanced(this.__wbg_ptr, ptr0, len0, ptr1, len1, isLikeNone(exclude_expired) ? 0xFFFFFF : exclude_expired ? 1 : 0);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -896,10 +914,6 @@ function __wbg_get_imports() {
         __wbg_set_6be42768c690e380: function(arg0, arg1, arg2) {
             arg0[arg1] = arg2;
         },
-        __wbg_set_6e30c9374c26414c: function() { return handleError(function (arg0, arg1, arg2) {
-            const ret = Reflect.set(arg0, arg1, arg2);
-            return ret;
-        }, arguments); },
         __wbg_set_dca99999bba88a9a: function(arg0, arg1, arg2) {
             arg0[arg1 >>> 0] = arg2;
         },
