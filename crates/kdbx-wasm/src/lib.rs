@@ -7,7 +7,10 @@ use wasm_bindgen::prelude::*;
 use kdbx_core::{
     error::KdbxError,
     parser::{generate_kdbx, parse_kdbx},
-    types::{CompressionAlgorithm, EncryptionAlgorithm, Entry, Group, KdbxSession, KdfAlgorithm},
+    types::{
+        CompressionAlgorithm, EncryptionAlgorithm, Entry, EntryField, Group, KdbxSession,
+        KdfAlgorithm, field_key_from_js, field_key_to_js,
+    },
 };
 
 #[wasm_bindgen(start)]
@@ -18,23 +21,23 @@ pub fn start() {
 // ── JS-facing DTOs ──
 
 #[derive(Serialize, Deserialize)]
+struct JsFieldData {
+    value: Option<String>,
+    protected: bool,
+}
+
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct JsEntry {
     uuid: String,
     icon_id: u32,
     group_id: String,
-    title: String,
-    username: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    password: Option<String>,
-    url: Option<String>,
-    notes: Option<String>,
     created_at: String,
     updated_at: String,
     accessed_at: String,
     expires_at: Option<String>,
     tags: Vec<String>,
-    custom_fields: HashMap<String, String>,
+    fields: HashMap<String, JsFieldData>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -250,31 +253,25 @@ impl KdbxDatabase {
     }
 
     #[wasm_bindgen(js_name = getEntries)]
-    pub fn get_entries(&self, include_password: Option<bool>) -> Result<Array, JsValue> {
-        let include_password = include_password.unwrap_or(false);
+    pub fn get_entries(&self) -> Result<Array, JsValue> {
         let mut sorted: Vec<&Entry> = self.session.entries.values().collect();
-        sorted.sort_by(|a, b| a.title.cmp(&b.title).then(a.id.cmp(&b.id)));
+        sorted.sort_by(|a, b| entry_title(a).cmp(entry_title(b)).then(a.id.cmp(&b.id)));
         let array = Array::new();
         for entry in sorted {
-            array.push(&self.entry_to_js(entry, include_password)?);
+            array.push(&self.entry_to_js(entry)?);
         }
         Ok(array)
     }
 
     #[wasm_bindgen(js_name = getEntry)]
-    pub fn get_entry(
-        &self,
-        uuid: &str,
-        include_password: Option<bool>,
-    ) -> Result<JsValue, JsValue> {
-        let include_password = include_password.unwrap_or(false);
+    pub fn get_entry(&self, uuid: &str) -> Result<JsValue, JsValue> {
         let uuid = parse_uuid(uuid)?;
         let entry = self
             .session
             .entries
             .get(&uuid)
             .ok_or_else(|| JsValue::from_str("Entry not found"))?;
-        self.entry_to_js(entry, include_password)
+        self.entry_to_js(entry)
     }
 
     #[wasm_bindgen(js_name = getGroups)]
@@ -328,18 +325,13 @@ impl KdbxDatabase {
     }
 
     #[wasm_bindgen(js_name = getEntriesByGroup)]
-    pub fn get_entries_by_group(
-        &self,
-        group_uuid: &str,
-        include_password: Option<bool>,
-    ) -> Result<Array, JsValue> {
-        let include_password = include_password.unwrap_or(false);
+    pub fn get_entries_by_group(&self, group_uuid: &str) -> Result<Array, JsValue> {
         let gid = parse_uuid(group_uuid)?;
         let array = Array::new();
         if let Some(entry_ids) = self.session.group_entries.get(&gid) {
             for id in entry_ids {
                 if let Some(entry) = self.session.entries.get(id) {
-                    array.push(&self.entry_to_js(entry, include_password)?);
+                    array.push(&self.entry_to_js(entry)?);
                 }
             }
         }
@@ -347,12 +339,7 @@ impl KdbxDatabase {
     }
 
     #[wasm_bindgen(js_name = searchEntries)]
-    pub fn search_entries(
-        &self,
-        query: &str,
-        include_password: Option<bool>,
-    ) -> Result<Array, JsValue> {
-        let include_password = include_password.unwrap_or(false);
+    pub fn search_entries(&self, query: &str) -> Result<Array, JsValue> {
         let search_query = kdbx_core::types::SearchQuery {
             text: Some(query),
             ..Default::default()
@@ -361,7 +348,7 @@ impl KdbxDatabase {
         let array = Array::new();
         for entry in self.session.entries.values() {
             if search_query.matches(entry, now) {
-                array.push(&self.entry_to_js(entry, include_password)?);
+                array.push(&self.entry_to_js(entry)?);
             }
         }
         Ok(array)
@@ -379,37 +366,54 @@ impl KdbxDatabase {
         Ok(Uint8Array::from(&bytes[..]))
     }
 
-    fn entry_to_js(&self, entry: &Entry, include_password: bool) -> Result<JsValue, JsValue> {
+    fn entry_to_js(&self, entry: &Entry) -> Result<JsValue, JsValue> {
         let js_value = to_js(&JsEntry {
             uuid: entry.id.to_string(),
             icon_id: entry.icon_id,
             group_id: entry.group_id.to_string(),
-            title: entry.title.clone(),
-            username: entry.username.clone(),
-            password: if include_password {
-                entry.password.as_ref().map(|p| p.as_str().to_string())
-            } else {
-                None
-            },
-            url: entry.url.clone(),
-            notes: entry.notes.clone(),
             created_at: entry.created_at.to_rfc3339(),
             updated_at: entry.updated_at.to_rfc3339(),
             accessed_at: entry.accessed_at.to_rfc3339(),
             expires_at: entry.expires_at.map(|e| e.to_rfc3339()),
             tags: entry.tags.clone(),
-            custom_fields: HashMap::new(),
+            fields: entry
+                .fields
+                .iter()
+                .map(|(key, field)| {
+                    (
+                        field_key_to_js(key),
+                        JsFieldData {
+                            value: if field.protected {
+                                None
+                            } else {
+                                Some(field.value.as_str().to_string())
+                            },
+                            protected: field.protected,
+                        },
+                    )
+                })
+                .collect(),
         })?;
-        // Replace Map with plain Object for customFields
-        let obj = js_sys::Object::from(js_value);
-        let custom = js_sys::Object::new();
-        for (k, v) in &entry.custom_fields {
-            js_sys::Reflect::set(&custom, &JsValue::from_str(k), &JsValue::from_str(v))
-                .map_err(|_| JsValue::from_str("Failed to set custom field"))?;
-        }
-        js_sys::Reflect::set(&obj, &JsValue::from_str("customFields"), &custom)
-            .map_err(|_| JsValue::from_str("Failed to set customFields"))?;
-        Ok(obj.into())
+        Ok(js_value)
+    }
+
+    #[wasm_bindgen(js_name = getEntryField)]
+    pub fn get_entry_field(&self, uuid: &str, field_name: &str) -> Result<Option<String>, JsValue> {
+        let id = parse_uuid(uuid)?;
+        let entry = self
+            .session
+            .entries
+            .get(&id)
+            .ok_or_else(|| JsValue::from_str("Entry not found"))?;
+        let key = field_key_from_js(field_name);
+        let field = entry.fields.get(&key).or_else(|| {
+            entry
+                .fields
+                .iter()
+                .find(|(wire, _)| field_key_to_js(wire) == field_name)
+                .map(|(_, field)| field)
+        });
+        Ok(field.map(|field| field.value.as_str().to_string()))
     }
 
     fn group_to_js(&self, group: &Group) -> Result<JsValue, JsValue> {
@@ -491,7 +495,9 @@ impl KdbxDatabase {
             .entries
             .get_mut(&id)
             .ok_or_else(|| to_js_error(KdbxError::EntryNotFound(id)))?;
-        entry.title = title.into();
+        entry
+            .fields
+            .insert("Title".into(), EntryField::new(title, false));
         entry.update();
         Ok(())
     }
@@ -508,7 +514,7 @@ impl KdbxDatabase {
             .entries
             .get_mut(&id)
             .ok_or_else(|| to_js_error(KdbxError::EntryNotFound(id)))?;
-        entry.username = username.filter(|s| !s.is_empty());
+        set_field(entry, "UserName", username, false);
         entry.update();
         Ok(())
     }
@@ -521,7 +527,9 @@ impl KdbxDatabase {
             .entries
             .get_mut(&id)
             .ok_or_else(|| to_js_error(KdbxError::EntryNotFound(id)))?;
-        entry.password = Some(kdbx_core::types::SecString::from_plain(password));
+        entry
+            .fields
+            .insert("Password".into(), EntryField::new(password, true));
         entry.update();
         Ok(())
     }
@@ -534,7 +542,7 @@ impl KdbxDatabase {
             .entries
             .get_mut(&id)
             .ok_or_else(|| to_js_error(KdbxError::EntryNotFound(id)))?;
-        entry.url = url.filter(|s| !s.is_empty());
+        set_field(entry, "URL", url, false);
         entry.update();
         Ok(())
     }
@@ -547,7 +555,7 @@ impl KdbxDatabase {
             .entries
             .get_mut(&id)
             .ok_or_else(|| to_js_error(KdbxError::EntryNotFound(id)))?;
-        entry.notes = notes.filter(|s| !s.is_empty());
+        set_field(entry, "Notes", notes, false);
         entry.update();
         Ok(())
     }
@@ -608,10 +616,10 @@ impl KdbxDatabase {
             .ok_or_else(|| to_js_error(KdbxError::EntryNotFound(id)))?;
         match value.filter(|s| !s.is_empty()) {
             Some(v) => {
-                entry.custom_fields.insert(key.into(), v);
+                entry.fields.insert(key.into(), EntryField::new(v, false));
             }
             None => {
-                entry.custom_fields.remove(key);
+                entry.fields.remove(key);
             }
         }
         entry.update();
@@ -732,9 +740,7 @@ impl KdbxDatabase {
         query: Option<String>,
         group_uuid: Option<String>,
         exclude_expired: Option<bool>,
-        include_password: Option<bool>,
     ) -> Result<Array, JsValue> {
-        let include_password = include_password.unwrap_or(false);
         let group_id = match group_uuid {
             Some(s) => Some(parse_uuid(&s)?),
             None => None,
@@ -749,7 +755,7 @@ impl KdbxDatabase {
         let array = Array::new();
         for entry in self.session.entries.values() {
             if search_query.matches(entry, now) {
-                array.push(&self.entry_to_js(entry, include_password)?);
+                array.push(&self.entry_to_js(entry)?);
             }
         }
         Ok(array)
@@ -774,6 +780,27 @@ impl KdbxDatabase {
 }
 
 // ── Standalone Functions ──
+
+fn entry_title(entry: &Entry) -> &str {
+    entry
+        .fields
+        .get("Title")
+        .map(|field| field.value.as_str())
+        .unwrap_or("")
+}
+
+fn set_field(entry: &mut Entry, key: &str, value: Option<String>, protected: bool) {
+    match value.filter(|value| !value.is_empty()) {
+        Some(value) => {
+            entry
+                .fields
+                .insert(key.into(), EntryField::new(value, protected));
+        }
+        None => {
+            entry.fields.remove(key);
+        }
+    }
+}
 
 #[wasm_bindgen(js_name = isKdbxFile)]
 pub fn is_kdbx_file(data: &Uint8Array) -> bool {
@@ -846,7 +873,11 @@ fn parse_uuid(s: &str) -> Result<Uuid, JsValue> {
 }
 
 fn to_js<T: serde::Serialize>(value: &T) -> Result<JsValue, JsValue> {
-    serde_wasm_bindgen::to_value(value)
+    let serializer = serde_wasm_bindgen::Serializer::new()
+        .serialize_maps_as_objects(true)
+        .serialize_missing_as_null(true);
+    value
+        .serialize(&serializer)
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
 }
 

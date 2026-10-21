@@ -148,21 +148,69 @@ pub struct BinaryRef {
 pub struct Entry {
     pub id: Uuid,
     pub group_id: Uuid,
-    pub title: String,
-    pub username: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub password: Option<SecString>,
-    pub url: Option<String>,
-    pub notes: Option<String>,
+    pub fields: HashMap<String, EntryField>,
     pub icon_id: u32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub accessed_at: DateTime<Utc>,
     pub expires_at: Option<DateTime<Utc>>,
     pub tags: Vec<String>,
-    pub custom_fields: HashMap<String, String>,
     pub binary_refs: Vec<BinaryRef>,
     pub history: Vec<Entry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntryField {
+    pub value: SecString,
+    pub protected: bool,
+}
+
+impl EntryField {
+    pub fn new(value: impl AsRef<str>, protected: bool) -> Self {
+        Self {
+            value: SecString::from_plain(value.as_ref()),
+            protected,
+        }
+    }
+}
+
+pub fn field_key_to_js(wire: &str) -> String {
+    match wire {
+        "Title" => return "title".into(),
+        "UserName" => return "username".into(),
+        "Password" => return "password".into(),
+        "URL" => return "url".into(),
+        "Notes" => return "notes".into(),
+        _ => {}
+    }
+    let mut out = String::new();
+    let mut upper = false;
+    for c in wire.chars() {
+        if !c.is_ascii_alphanumeric() {
+            upper = true;
+            continue;
+        }
+        if out.is_empty() {
+            out.extend(c.to_lowercase());
+        } else if upper {
+            out.extend(c.to_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+pub fn field_key_from_js(js: &str) -> String {
+    match js {
+        "title" => "Title".into(),
+        "username" => "UserName".into(),
+        "password" => "Password".into(),
+        "url" => "URL".into(),
+        "notes" => "Notes".into(),
+        _ => js.to_string(),
+    }
 }
 
 impl Entry {
@@ -171,18 +219,22 @@ impl Entry {
         Self {
             id: Uuid::new_v4(),
             group_id,
-            title,
-            username: None,
-            password: Some(password),
-            url: None,
-            notes: None,
+            fields: HashMap::from([
+                ("Title".into(), EntryField::new(title, false)),
+                (
+                    "Password".into(),
+                    EntryField {
+                        value: password,
+                        protected: true,
+                    },
+                ),
+            ]),
             icon_id: 0,
             created_at: now,
             updated_at: now,
             accessed_at: now,
             expires_at: None,
             tags: Vec::new(),
-            custom_fields: HashMap::new(),
             binary_refs: Vec::new(),
             history: Vec::new(),
         }
@@ -447,30 +499,11 @@ impl<'a> SearchQuery<'a> {
         }
         if let Some(query) = self.text {
             let q = query.to_lowercase();
-            if !entry.title.to_lowercase().contains(&q)
-                && !entry
-                    .username
-                    .as_deref()
-                    .unwrap_or("")
-                    .to_lowercase()
-                    .contains(&q)
-                && !entry
-                    .url
-                    .as_deref()
-                    .unwrap_or("")
-                    .to_lowercase()
-                    .contains(&q)
-                && !entry
-                    .notes
-                    .as_deref()
-                    .unwrap_or("")
-                    .to_lowercase()
-                    .contains(&q)
+            if !entry
+                .fields
+                .values()
+                .any(|field| !field.protected && field.value.as_str().to_lowercase().contains(&q))
                 && !entry.tags.iter().any(|t| t.to_lowercase().contains(&q))
-                && !entry
-                    .custom_fields
-                    .values()
-                    .any(|v| v.to_lowercase().contains(&q))
             {
                 return false;
             }
@@ -666,7 +699,7 @@ mod tests {
     fn test_entry_creation() {
         let group_id = Uuid::new_v4();
         let entry = Entry::new(group_id, "Test".to_string(), SecString::from_plain("pass"));
-        assert_eq!(entry.title, "Test");
+        assert_eq!(entry.fields["Title"].value.as_str(), "Test");
         assert_eq!(entry.group_id, group_id);
     }
 

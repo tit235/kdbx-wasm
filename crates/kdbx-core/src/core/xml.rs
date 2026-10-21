@@ -177,11 +177,7 @@ fn parse_entry_node(
             .transpose()?
             .unwrap_or_else(Uuid::new_v4),
         group_id,
-        title: String::new(),
-        username: None,
-        password: None,
-        url: None,
-        notes: None,
+        fields: HashMap::new(),
         icon_id: child_text(node, "IconID")
             .and_then(|v| v.parse().ok())
             .unwrap_or_default(),
@@ -197,7 +193,6 @@ fn parse_entry_node(
                     .collect()
             })
             .unwrap_or_default(),
-        custom_fields: HashMap::new(),
         binary_refs: Vec::new(),
         history: Vec::new(),
     };
@@ -207,18 +202,8 @@ fn parse_entry_node(
             continue;
         };
         let value_node = string_node.children().find(|n| n.has_tag_name("Value"));
-        let value = parse_value_node(value_node, protected_stream)?;
-
-        match key.as_str() {
-            "Title" => entry.title = value,
-            "UserName" => entry.username = non_empty(value),
-            "Password" => entry.password = Some(SecString::from_plain(&value)),
-            "URL" => entry.url = non_empty(value),
-            "Notes" => entry.notes = non_empty(value),
-            _ => {
-                entry.custom_fields.insert(key, value);
-            }
-        }
+        let (value, protected) = parse_value_node(value_node, protected_stream)?;
+        entry.fields.insert(key, EntryField::new(value, protected));
     }
 
     for binary_node in node.children().filter(|n| n.has_tag_name("Binary")) {
@@ -250,8 +235,14 @@ fn parse_entry_node(
         }
     }
 
-    if entry.title.is_empty() {
-        entry.title = "Untitled".to_string();
+    if entry
+        .fields
+        .get("Title")
+        .is_none_or(|f| f.value.as_str().is_empty())
+    {
+        entry
+            .fields
+            .insert("Title".into(), EntryField::new("Untitled", false));
     }
     Ok(entry)
 }
@@ -275,9 +266,9 @@ fn parse_deleted_objects(node: Node<'_, '_>) -> Vec<DeletedObject> {
 fn parse_value_node(
     node: Option<Node<'_, '_>>,
     protected_stream: &mut Option<&mut ProtectedStream>,
-) -> Result<String, KdbxError> {
+) -> Result<(String, bool), KdbxError> {
     let Some(node) = node else {
-        return Ok(String::new());
+        return Ok((String::new(), false));
     };
 
     let raw_value = node.text().unwrap_or_default();
@@ -286,7 +277,7 @@ fn parse_value_node(
         .is_some_and(|v| v.eq_ignore_ascii_case("true"));
 
     if !is_protected || raw_value.is_empty() {
-        return Ok(raw_value.to_string());
+        return Ok((raw_value.to_string(), is_protected));
     }
 
     let encrypted = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, raw_value)
@@ -296,7 +287,9 @@ fn parse_value_node(
     } else {
         encrypted
     };
-    String::from_utf8(decrypted).map_err(|e| KdbxError::SerializationError(e.to_string()))
+    let value =
+        String::from_utf8(decrypted).map_err(|e| KdbxError::SerializationError(e.to_string()))?;
+    Ok((value, is_protected))
 }
 
 fn parse_expires(node: Node<'_, '_>, times: Option<Node<'_, '_>>) -> Option<DateTime<Utc>> {
@@ -397,7 +390,11 @@ fn write_group_xml(
         .values()
         .filter(|e| e.group_id == group.id)
         .collect();
-    child_entries.sort_by(|a, b| a.title.cmp(&b.title).then(a.id.cmp(&b.id)));
+    child_entries.sort_by(|a, b| {
+        field_value(a, "Title")
+            .cmp(field_value(b, "Title"))
+            .then(a.id.cmp(&b.id))
+    });
 
     xml.push_str("<Group>");
     xml.push_str(&format!("<UUID>{}</UUID>", uuid_to_base64(&group.id)));
@@ -435,29 +432,16 @@ fn write_entry_xml(
     xml.push_str(&format!("<UUID>{}</UUID>", uuid_to_base64(&entry.id)));
     xml.push_str(&format!("<IconID>{}</IconID>", entry.icon_id));
 
-    write_string_field(xml, "Title", &entry.title, None);
-    if let Some(username) = &entry.username {
-        write_string_field(xml, "UserName", username, None);
-    }
-    if let Some(password) = &entry.password {
+    let mut fields: Vec<_> = entry.fields.iter().collect();
+    fields.sort_by_key(|(key, _)| *key);
+    for (key, field) in fields {
         write_string_field(
             xml,
-            "Password",
-            password.as_str(),
+            key,
+            field.value.as_str(),
+            field.protected,
             protected_stream.as_deref_mut(),
-        );
-    }
-    if let Some(url) = &entry.url {
-        write_string_field(xml, "URL", url, None);
-    }
-    if let Some(notes) = &entry.notes {
-        write_string_field(xml, "Notes", notes, None);
-    }
-
-    let mut custom: Vec<_> = entry.custom_fields.iter().collect();
-    custom.sort_by_key(|(k, _)| *k);
-    for (key, value) in custom {
-        write_string_field(xml, key, value, None);
+        )?;
     }
 
     for bref in &entry.binary_refs {
@@ -499,9 +483,11 @@ fn write_string_field(
     xml: &mut String,
     key: &str,
     value: &str,
+    protected: bool,
     stream: Option<&mut ProtectedStream>,
-) {
-    let value_xml = if let Some(stream) = stream {
+) -> Result<(), KdbxError> {
+    let value_xml = if protected {
+        let stream = stream.ok_or(KdbxError::UnsupportedEncryptionAlgorithm)?;
         let encrypted = stream.process(value.as_bytes());
         format!(
             "<Value Protected=\"True\">{}</Value>",
@@ -515,6 +501,15 @@ fn write_string_field(
         escape_xml(key),
         value_xml
     ));
+    Ok(())
+}
+
+fn field_value<'a>(entry: &'a Entry, key: &str) -> &'a str {
+    entry
+        .fields
+        .get(key)
+        .map(|f| f.value.as_str())
+        .unwrap_or("")
 }
 
 fn write_times_xml(
@@ -576,10 +571,6 @@ fn child_text(node: Node<'_, '_>, tag: &str) -> Option<String> {
         .map(String::from)
 }
 
-fn non_empty(value: String) -> Option<String> {
-    if value.is_empty() { None } else { Some(value) }
-}
-
 fn escape_xml(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -614,11 +605,17 @@ mod tests {
         groups.insert(group.id, group);
 
         let mut entries = HashMap::new();
-        let entry = Entry::new(
+        let mut entry = Entry::new(
             group_id,
             "Entry".to_string(),
             SecString::from_plain("secret"),
         );
+        entry
+            .fields
+            .insert("Notes".into(), EntryField::new("hidden note", true));
+        entry
+            .fields
+            .insert("OTP".into(), EntryField::new("hidden token", true));
         entries.insert(entry.id, entry);
 
         let metadata = Metadata::default();
@@ -629,6 +626,13 @@ mod tests {
         let mut parse_stream = ProtectedStream::new(3, &[0x11; 64]).unwrap();
         let (_, parsed, _, _) = parse_xml(&xml, Some(&mut parse_stream)).unwrap();
         assert_eq!(parsed.len(), 1);
+        let parsed_entry = parsed.values().next().unwrap();
+        assert_eq!(parsed_entry.fields["Password"].value.as_str(), "secret");
+        assert!(parsed_entry.fields["Password"].protected);
+        assert_eq!(parsed_entry.fields["Notes"].value.as_str(), "hidden note");
+        assert!(parsed_entry.fields["Notes"].protected);
+        assert_eq!(parsed_entry.fields["OTP"].value.as_str(), "hidden token");
+        assert!(parsed_entry.fields["OTP"].protected);
     }
 
     #[test]
@@ -671,12 +675,15 @@ mod tests {
         let entry = entries.values().next().unwrap();
         assert_eq!(entry.tags, vec!["ops".to_string(), "prod".to_string()]);
         assert_eq!(
-            entry.custom_fields.get("Environment"),
-            Some(&"prod".to_string())
+            entry
+                .fields
+                .get("Environment")
+                .map(|field| field.value.as_str()),
+            Some("prod")
         );
         assert_eq!(
-            entry.custom_fields.get("Owner"),
-            Some(&"team-a".to_string())
+            entry.fields.get("Owner").map(|field| field.value.as_str()),
+            Some("team-a")
         );
     }
 
