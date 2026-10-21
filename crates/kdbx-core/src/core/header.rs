@@ -215,14 +215,14 @@ fn parse_kdf_parameters(data: &[u8]) -> Result<KdfAlgorithm, KdbxError> {
 
     if uuid == ARGON2D_KDF_UUID {
         Ok(KdfAlgorithm::Argon2d {
-            memory: memory.unwrap_or(65536),
+            memory: memory.unwrap_or(64 * 1024 * 1024),
             iterations: iterations.unwrap_or(3),
             parallelism: parallelism.unwrap_or(4),
             salt,
         })
     } else if uuid == ARGON2ID_KDF_UUID {
         Ok(KdfAlgorithm::Argon2id {
-            memory: memory.unwrap_or(65536),
+            memory: memory.unwrap_or(64 * 1024 * 1024),
             iterations: iterations.unwrap_or(3),
             parallelism: parallelism.unwrap_or(4),
             salt,

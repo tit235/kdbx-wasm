@@ -79,8 +79,12 @@ fn derive_key_argon2(
     parallelism: u32,
     output_length: usize,
 ) -> Result<SecVec<u8>, KdbxError> {
+    // KDBX stores Argon2 memory cost in bytes; argon2-rs expects KiB.
+    let memory_kib = u32::try_from(memory / 1024).map_err(|_| {
+        KdbxError::ValidationError("Argon2 memory cost exceeds supported range".into())
+    })?;
     let params = Params::new(
-        memory as u32,
+        memory_kib,
         iterations as u32,
         parallelism,
         Some(output_length),
@@ -227,15 +231,29 @@ mod tests {
 
     #[test]
     fn test_argon2d_derive_key() {
-        let key =
-            derive_key_argon2d(b"test_password", b"test_salt_123456", 65536, 3, 4, 32).unwrap();
+        let key = derive_key_argon2d(
+            b"test_password",
+            b"test_salt_123456",
+            64 * 1024 * 1024,
+            3,
+            4,
+            32,
+        )
+        .unwrap();
         assert_eq!(key.len(), 32);
     }
 
     #[test]
     fn test_argon2id_derive_key() {
-        let key =
-            derive_key_argon2id(b"test_password", b"test_salt_123456", 65536, 3, 4, 32).unwrap();
+        let key = derive_key_argon2id(
+            b"test_password",
+            b"test_salt_123456",
+            64 * 1024 * 1024,
+            3,
+            4,
+            32,
+        )
+        .unwrap();
         assert_eq!(key.len(), 32);
     }
 
