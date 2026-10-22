@@ -1,5 +1,3 @@
-/* @ts-self-types="./kdbx_wasm.d.ts" */
-
 export class JsFileInfo {
     static __wrap(ptr) {
         const obj = Object.create(JsFileInfo.prototype);
@@ -300,6 +298,41 @@ export class JsMetadata {
     get maintenanceHistoryDays() {
         const ret = wasm.jsmetadata_maintenanceHistoryDays(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    get protectNotes() {
+        const ret = wasm.jsmetadata_protectNotes(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    get protectPassword() {
+        const ret = wasm.jsmetadata_protectPassword(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    get protectTitle() {
+        const ret = wasm.jsmetadata_protectTitle(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    get protectUrl() {
+        const ret = wasm.jsmetadata_protectUrl(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    get protectUsername() {
+        const ret = wasm.jsmetadata_protectUsername(this.__wbg_ptr);
+        return ret !== 0;
     }
 }
 if (Symbol.dispose) JsMetadata.prototype[Symbol.dispose] = JsMetadata.prototype.free;
