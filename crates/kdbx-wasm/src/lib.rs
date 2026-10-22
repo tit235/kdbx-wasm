@@ -65,6 +65,11 @@ pub struct JsMetadata {
     default_username: Option<String>,
     maintenance_history_days: u32,
     color: Option<String>,
+    protect_title: bool,
+    protect_username: bool,
+    protect_password: bool,
+    protect_url: bool,
+    protect_notes: bool,
 }
 
 #[wasm_bindgen]
@@ -88,6 +93,26 @@ impl JsMetadata {
     #[wasm_bindgen(getter, js_name = color)]
     pub fn color(&self) -> Option<String> {
         self.color.clone()
+    }
+    #[wasm_bindgen(getter, js_name = protectTitle)]
+    pub fn protect_title(&self) -> bool {
+        self.protect_title
+    }
+    #[wasm_bindgen(getter, js_name = protectUsername)]
+    pub fn protect_username(&self) -> bool {
+        self.protect_username
+    }
+    #[wasm_bindgen(getter, js_name = protectPassword)]
+    pub fn protect_password(&self) -> bool {
+        self.protect_password
+    }
+    #[wasm_bindgen(getter, js_name = protectUrl)]
+    pub fn protect_url(&self) -> bool {
+        self.protect_url
+    }
+    #[wasm_bindgen(getter, js_name = protectNotes)]
+    pub fn protect_notes(&self) -> bool {
+        self.protect_notes
     }
 }
 
@@ -196,6 +221,11 @@ impl KdbxDatabase {
             default_username: meta.default_username.clone(),
             maintenance_history_days: meta.maintenance_history_days,
             color: meta.color.clone(),
+            protect_title: meta.memory_protection.title,
+            protect_username: meta.memory_protection.username,
+            protect_password: meta.memory_protection.password,
+            protect_url: meta.memory_protection.url,
+            protect_notes: meta.memory_protection.notes,
         }
     }
 
@@ -490,6 +520,7 @@ impl KdbxDatabase {
     #[wasm_bindgen(js_name = setEntryTitle)]
     pub fn set_entry_title(&mut self, uuid: &str, title: &str) -> Result<(), String> {
         let id = parse_uuid(uuid).map_err(|e| e.as_string().unwrap_or_default())?;
+        let protected = self.session.metadata.memory_protection.title;
         let entry = self
             .session
             .entries
@@ -497,7 +528,7 @@ impl KdbxDatabase {
             .ok_or_else(|| to_js_error(KdbxError::EntryNotFound(id)))?;
         entry
             .fields
-            .insert("Title".into(), EntryField::new(title, false));
+            .insert("Title".into(), EntryField::new(title, protected));
         entry.update();
         Ok(())
     }
@@ -509,12 +540,13 @@ impl KdbxDatabase {
         username: Option<String>,
     ) -> Result<(), String> {
         let id = parse_uuid(uuid).map_err(|e| e.as_string().unwrap_or_default())?;
+        let protected = self.session.metadata.memory_protection.username;
         let entry = self
             .session
             .entries
             .get_mut(&id)
             .ok_or_else(|| to_js_error(KdbxError::EntryNotFound(id)))?;
-        set_field(entry, "UserName", username, false);
+        set_field(entry, "UserName", username, protected);
         entry.update();
         Ok(())
     }
@@ -522,6 +554,7 @@ impl KdbxDatabase {
     #[wasm_bindgen(js_name = setEntryPassword)]
     pub fn set_entry_password(&mut self, uuid: &str, password: &str) -> Result<(), String> {
         let id = parse_uuid(uuid).map_err(|e| e.as_string().unwrap_or_default())?;
+        let protected = self.session.metadata.memory_protection.password;
         let entry = self
             .session
             .entries
@@ -529,7 +562,7 @@ impl KdbxDatabase {
             .ok_or_else(|| to_js_error(KdbxError::EntryNotFound(id)))?;
         entry
             .fields
-            .insert("Password".into(), EntryField::new(password, true));
+            .insert("Password".into(), EntryField::new(password, protected));
         entry.update();
         Ok(())
     }
@@ -537,12 +570,13 @@ impl KdbxDatabase {
     #[wasm_bindgen(js_name = setEntryUrl)]
     pub fn set_entry_url(&mut self, uuid: &str, url: Option<String>) -> Result<(), String> {
         let id = parse_uuid(uuid).map_err(|e| e.as_string().unwrap_or_default())?;
+        let protected = self.session.metadata.memory_protection.url;
         let entry = self
             .session
             .entries
             .get_mut(&id)
             .ok_or_else(|| to_js_error(KdbxError::EntryNotFound(id)))?;
-        set_field(entry, "URL", url, false);
+        set_field(entry, "URL", url, protected);
         entry.update();
         Ok(())
     }
@@ -550,12 +584,13 @@ impl KdbxDatabase {
     #[wasm_bindgen(js_name = setEntryNotes)]
     pub fn set_entry_notes(&mut self, uuid: &str, notes: Option<String>) -> Result<(), String> {
         let id = parse_uuid(uuid).map_err(|e| e.as_string().unwrap_or_default())?;
+        let protected = self.session.metadata.memory_protection.notes;
         let entry = self
             .session
             .entries
             .get_mut(&id)
             .ok_or_else(|| to_js_error(KdbxError::EntryNotFound(id)))?;
-        set_field(entry, "Notes", notes, false);
+        set_field(entry, "Notes", notes, protected);
         entry.update();
         Ok(())
     }

@@ -104,6 +104,27 @@ fn parse_metadata(node: Option<Node<'_, '_>>) -> Metadata {
         maintenance_history_days: child_text(node, "MaintenanceHistoryDays")
             .and_then(|v| v.parse().ok())
             .unwrap_or_default(),
+        memory_protection: node
+            .children()
+            .find(|n| n.has_tag_name("MemoryProtection"))
+            .map(parse_memory_protection)
+            .unwrap_or_default(),
+    }
+}
+
+fn parse_memory_protection(node: Node<'_, '_>) -> MemoryProtection {
+    let defaults = MemoryProtection::default();
+    let value = |name, default| {
+        child_text(node, name)
+            .map(|v| v.eq_ignore_ascii_case("true"))
+            .unwrap_or(default)
+    };
+    MemoryProtection {
+        title: value("ProtectTitle", defaults.title),
+        username: value("ProtectUserName", defaults.username),
+        password: value("ProtectPassword", defaults.password),
+        url: value("ProtectURL", defaults.url),
+        notes: value("ProtectNotes", defaults.notes),
     }
 }
 
@@ -346,6 +367,21 @@ pub fn generate_xml(
     if let Some(color) = &metadata.color {
         xml.push_str(&format!("<Color>{}</Color>", escape_xml(color)));
     }
+    let protection = &metadata.memory_protection;
+    xml.push_str(&format!(
+        "<MemoryProtection>\
+         <ProtectTitle>{}</ProtectTitle>\
+         <ProtectUserName>{}</ProtectUserName>\
+         <ProtectPassword>{}</ProtectPassword>\
+         <ProtectURL>{}</ProtectURL>\
+         <ProtectNotes>{}</ProtectNotes>\
+         </MemoryProtection>",
+        protection.title,
+        protection.username,
+        protection.password,
+        protection.url,
+        protection.notes,
+    ));
     xml.push_str("</Meta>");
 
     // Root
@@ -633,6 +669,33 @@ mod tests {
         assert!(parsed_entry.fields["Notes"].protected);
         assert_eq!(parsed_entry.fields["OTP"].value.as_str(), "hidden token");
         assert!(parsed_entry.fields["OTP"].protected);
+    }
+
+    #[test]
+    fn test_memory_protection_settings_roundtrip() {
+        let xml = br#"<KeePassFile><Meta><MemoryProtection>
+            <ProtectTitle>True</ProtectTitle>
+            <ProtectUserName>True</ProtectUserName>
+            <ProtectPassword>False</ProtectPassword>
+            <ProtectURL>True</ProtectURL>
+            <ProtectNotes>False</ProtectNotes>
+        </MemoryProtection></Meta><Root /></KeePassFile>"#;
+        let (_, _, _, metadata) = parse_xml(xml, None).unwrap();
+        assert_eq!(
+            metadata.memory_protection,
+            MemoryProtection {
+                title: true,
+                username: true,
+                password: false,
+                url: true,
+                notes: false,
+            }
+        );
+
+        let generated =
+            generate_xml(&HashMap::new(), &HashMap::new(), &[], &metadata, None).unwrap();
+        let (_, _, _, reparsed) = parse_xml(&generated, None).unwrap();
+        assert_eq!(reparsed.memory_protection, metadata.memory_protection);
     }
 
     #[test]

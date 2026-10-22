@@ -215,17 +215,29 @@ pub fn field_key_from_js(js: &str) -> String {
 
 impl Entry {
     pub fn new(group_id: Uuid, title: String, password: SecString) -> Self {
+        Self::new_with_protection(group_id, title, password, &MemoryProtection::default())
+    }
+
+    pub fn new_with_protection(
+        group_id: Uuid,
+        title: String,
+        password: SecString,
+        protection: &MemoryProtection,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
             group_id,
             fields: HashMap::from([
-                ("Title".into(), EntryField::new(title, false)),
+                (
+                    "Title".into(),
+                    EntryField::new(title, protection.for_field("Title")),
+                ),
                 (
                     "Password".into(),
                     EntryField {
                         value: password,
-                        protected: true,
+                        protected: protection.for_field("Password"),
                     },
                 ),
             ]),
@@ -300,6 +312,40 @@ impl DeletedObject {
 
 // ── Metadata ──
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryProtection {
+    pub title: bool,
+    pub username: bool,
+    pub password: bool,
+    pub url: bool,
+    pub notes: bool,
+}
+
+impl Default for MemoryProtection {
+    fn default() -> Self {
+        Self {
+            title: false,
+            username: false,
+            password: true,
+            url: false,
+            notes: false,
+        }
+    }
+}
+
+impl MemoryProtection {
+    pub fn for_field(&self, key: &str) -> bool {
+        match key {
+            "Title" => self.title,
+            "UserName" => self.username,
+            "Password" => self.password,
+            "URL" => self.url,
+            "Notes" => self.notes,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Metadata {
     pub database_name: Option<String>,
@@ -307,6 +353,7 @@ pub struct Metadata {
     pub default_username: Option<String>,
     pub maintenance_history_days: u32,
     pub color: Option<String>,
+    pub memory_protection: MemoryProtection,
 }
 
 // ── KDBX Session ──
@@ -357,7 +404,8 @@ impl KdbxSession {
         if !self.groups.contains_key(&group_id) {
             return Err(KdbxError::GroupNotFound(group_id));
         }
-        let entry = Entry::new(group_id, title, password);
+        let entry =
+            Entry::new_with_protection(group_id, title, password, &self.metadata.memory_protection);
         let id = entry.id;
         self.group_entries.entry(group_id).or_default().push(id);
         self.entries.insert(id, entry);
