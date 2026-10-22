@@ -493,8 +493,10 @@ pub fn generate_kdbx(
 mod tests {
     use super::*;
 
-    fn fixture_path() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pass.kdbx")
+    fn fixture_path(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures")
+            .join(name)
     }
 
     #[test]
@@ -552,14 +554,117 @@ mod tests {
 
     #[test]
     fn test_parse_pass_kdbx() {
-        let data = std::fs::read(fixture_path()).unwrap();
+        let data = std::fs::read(fixture_path("pass.kdbx")).unwrap();
         let session = parse_kdbx(&data, Some("redhat"), None).unwrap();
         assert!(!session.entries.is_empty());
     }
 
     #[test]
+    fn test_small_kdf_fixtures() {
+        let cases = [
+            ("test-aes-kdf.kdbx", "aes-kdf"),
+            ("test-argon2d.kdbx", "argon2d"),
+        ];
+
+        for (name, expected_kdf) in cases {
+            let data = std::fs::read(fixture_path(name)).unwrap();
+            let header = header::parse_header(&data).unwrap();
+            assert_eq!(header.version, FileVersion::new(4, 1), "{name}");
+            assert_eq!(header.encryption, EncryptionAlgorithm::Aes256, "{name}");
+            assert_eq!(header.compression, CompressionAlgorithm::Gzip, "{name}");
+            match (expected_kdf, &header.kdf) {
+                ("aes-kdf", KdfAlgorithm::AesKdf { rounds, salt }) => {
+                    assert_eq!(*rounds, 300_000, "{name}");
+                    assert_eq!(salt.len(), 32, "{name}");
+                }
+                (
+                    "argon2d",
+                    KdfAlgorithm::Argon2d {
+                        memory,
+                        iterations,
+                        parallelism,
+                        salt,
+                    },
+                ) => {
+                    assert_eq!(*memory, 64 * 1024 * 1024, "{name}");
+                    assert_eq!(*iterations, 65, "{name}");
+                    assert_eq!(*parallelism, 4, "{name}");
+                    assert_eq!(salt.len(), 32, "{name}");
+                }
+                _ => panic!("unexpected KDF for {name}"),
+            }
+
+            let session = parse_kdbx(&data, Some("123456"), None).unwrap();
+            assert_eq!(session.entries.len(), 5, "{name}");
+            assert_eq!(session.groups.len(), 4, "{name}");
+        }
+    }
+
+    #[test]
+    fn test_entry_count_fixtures() {
+        for entry_count in [300usize, 1000, 10000] {
+            for (suffix, expected_kdf) in [("aes-kdf", "aes-kdf"), ("argon2d", "argon2d")] {
+                let name = format!("entries-{entry_count}-{suffix}.kdbx");
+                let data = std::fs::read(fixture_path(&name)).unwrap();
+                let header = header::parse_header(&data).unwrap();
+                assert_eq!(header.version, FileVersion::new(4, 1), "{name}");
+                match (expected_kdf, &header.kdf) {
+                    ("aes-kdf", KdfAlgorithm::AesKdf { rounds, .. }) => {
+                        assert_eq!(*rounds, 300_000, "{name}");
+                    }
+                    (
+                        "argon2d",
+                        KdfAlgorithm::Argon2d {
+                            memory,
+                            iterations,
+                            parallelism,
+                            ..
+                        },
+                    ) => {
+                        assert_eq!(*memory, 64 * 1024 * 1024, "{name}");
+                        assert_eq!(*iterations, 65, "{name}");
+                        assert_eq!(*parallelism, 4, "{name}");
+                    }
+                    _ => panic!("unexpected KDF for {name}"),
+                }
+
+                let session = parse_kdbx(&data, Some("123456"), None).unwrap();
+                assert_eq!(session.entries.len(), entry_count, "{name}");
+                assert_eq!(session.groups.len(), 1, "{name}");
+                let root = session.root_group.expect("root group");
+                assert_eq!(
+                    session.group_entries.get(&root).map(Vec::len),
+                    Some(entry_count),
+                    "{name}"
+                );
+
+                let first = session
+                    .entries
+                    .values()
+                    .find(|entry| entry.fields["Title"].value.as_str() == "Entry 00000")
+                    .expect("first generated entry");
+                assert_eq!(first.fields["UserName"].value.as_str(), "user00000");
+                assert!(first.fields["Password"].protected, "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_entry_count_fixtures_roundtrip() {
+        for suffix in ["aes-kdf", "argon2d"] {
+            let name = format!("entries-300-{suffix}.kdbx");
+            let data = std::fs::read(fixture_path(&name)).unwrap();
+            let session = parse_kdbx(&data, Some("123456"), None).unwrap();
+            let exported = generate_kdbx(&session, Some("123456"), None).unwrap();
+            let reparsed = parse_kdbx(&exported, Some("123456"), None).unwrap();
+            assert_eq!(reparsed.entries.len(), 300, "{name}");
+            assert_eq!(reparsed.groups.len(), 1, "{name}");
+        }
+    }
+
+    #[test]
     fn test_roundtrip_kdbx4() {
-        let data = std::fs::read(fixture_path()).unwrap();
+        let data = std::fs::read(fixture_path("pass.kdbx")).unwrap();
         let session = parse_kdbx(&data, Some("redhat"), None).unwrap();
         let exported = generate_kdbx(&session, Some("redhat"), None).unwrap();
         let reparsed = parse_kdbx(&exported, Some("redhat"), None).unwrap();
@@ -569,7 +674,7 @@ mod tests {
 
     #[test]
     fn test_export_regenerates_crypto_material() {
-        let data = std::fs::read(fixture_path()).unwrap();
+        let data = std::fs::read(fixture_path("pass.kdbx")).unwrap();
         let session = parse_kdbx(&data, Some("redhat"), None).unwrap();
         let first = generate_kdbx(&session, Some("redhat"), None).unwrap();
         let second = generate_kdbx(&session, Some("redhat"), None).unwrap();
@@ -586,7 +691,7 @@ mod tests {
 
     #[test]
     fn test_hmac_rejects_tampering() {
-        let data = std::fs::read(fixture_path()).unwrap();
+        let data = std::fs::read(fixture_path("pass.kdbx")).unwrap();
         let mut tampered = data.clone();
         let header_end = find_header_end(&tampered).unwrap();
         tampered[header_end + 64 + 36] ^= 0x01;
@@ -628,7 +733,14 @@ mod tests {
         let group = Group::new("Root".to_string(), None);
         groups.insert(group.id, group);
         let mut stream = xml::ProtectedStream::new(INNER_STREAM_CHACHA20, key).unwrap();
-        let xml_data = xml::generate_xml(&groups, &HashMap::new(), &[], &Metadata::default(), Some(&mut stream)).unwrap();
+        let xml_data = xml::generate_xml(
+            &groups,
+            &HashMap::new(),
+            &[],
+            &Metadata::default(),
+            Some(&mut stream),
+        )
+        .unwrap();
 
         let mut out = Vec::new();
         out.push(1);

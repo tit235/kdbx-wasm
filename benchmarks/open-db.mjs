@@ -9,7 +9,7 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
 const defaultFixture = fileURLToPath(
-    new URL('../crates/kdbx-core/tests/fixtures/pass.kdbx', import.meta.url)
+    new URL('../fixtures/pass.kdbx', import.meta.url)
 );
 const fixture = process.argv[2] ? resolve(process.argv[2]) : defaultFixture;
 const data = new Uint8Array(readFileSync(fixture));
@@ -22,9 +22,17 @@ if (!Number.isInteger(warmupCount) || warmupCount < 0 ||
     throw new Error('BENCH_WARMUP must be >= 0 and BENCH_ITERATIONS must be >= 1');
 }
 
-// Importing the Node entry also reads and compiles the .wasm and initializes it.
+// Importing the WASM glue and initializing it explicitly keeps the benchmark
+// runnable in plain Node (the package entry relies on a bundler to import the
+// .wasm module).
 const importStart = performance.now();
-const { KdbxDatabase, getFileInfo } = await import('../packages/kdbx-wasm/index.js');
+const { initSync, getFileInfo } = await import('../packages/kdbx-wasm/kdbx_wasm.js');
+const { KdbxDatabase } = await import('../packages/kdbx-wasm/database.js');
+initSync({
+    module: readFileSync(
+        new URL('../packages/kdbx-wasm/kdbx_wasm_bg.wasm', import.meta.url)
+    ),
+});
 const moduleInitMs = performance.now() - importStart;
 const fileInfo = getFileInfo(data);
 
