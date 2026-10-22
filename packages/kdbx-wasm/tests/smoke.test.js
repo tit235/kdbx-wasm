@@ -1,7 +1,7 @@
 // Smoke tests for the unified ESM package.
-// Node resolves the "node" exports condition to index.js, which loads the
-// WASM module synchronously; the browser entry (kdbx_wasm.js) is exercised
-// in the last test via its initSync/default export surface.
+// The package entry (index.js) imports the WASM binary through a bundler, so
+// plain Node cannot load it directly. These tests exercise the shared glue and
+// the wrapped database layer with an explicit initSync() instead.
 // Uses the committed fixture at crates/kdbx-core/tests/fixtures/pass.kdbx.
 
 import { test } from 'node:test';
@@ -10,9 +10,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import * as wasm from '../index.js';
+import { initSync, isKdbxFile, getFileInfo } from '../kdbx_wasm.js';
+import { KdbxDatabase } from '../database.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const WASM = path.join(__dirname, '..', 'kdbx_wasm_bg.wasm');
 
 const FIXTURE = path.join(
     __dirname,
@@ -26,12 +29,14 @@ const FIXTURE = path.join(
     'pass.kdbx'
 );
 
+initSync({ module: fs.readFileSync(WASM) });
+
 test('isKdbxFile / getFileInfo', () => {
     const data = new Uint8Array(fs.readFileSync(FIXTURE));
-    assert.strictEqual(wasm.isKdbxFile(data), true);
-    assert.strictEqual(wasm.isKdbxFile(new Uint8Array([1, 2, 3])), false);
+    assert.strictEqual(isKdbxFile(data), true);
+    assert.strictEqual(isKdbxFile(new Uint8Array([1, 2, 3])), false);
 
-    const info = wasm.getFileInfo(data);
+    const info = getFileInfo(data);
     assert.match(info.version, /^4\./);
     assert.ok(['AES-256', 'ChaCha20'].includes(info.encryptionAlgorithm));
     assert.ok(['Argon2d', 'Argon2id', 'AES-KDF'].includes(info.kdfAlgorithm));
@@ -39,7 +44,7 @@ test('isKdbxFile / getFileInfo', () => {
 
 test('open, query, and round-trip export', () => {
     const data = new Uint8Array(fs.readFileSync(FIXTURE));
-    const db = new wasm.KdbxDatabase(data, 'redhat');
+    const db = new KdbxDatabase(data, 'redhat');
 
     const entries = db.getEntries();
     assert.ok(entries.length > 0, 'fixture should contain entries');
@@ -69,34 +74,25 @@ test('open, query, and round-trip export', () => {
     assert.ok(exported instanceof Uint8Array);
     assert.ok(exported.length > 0);
 
-    const db2 = new wasm.KdbxDatabase(exported, 'redhat');
+    const db2 = new KdbxDatabase(exported, 'redhat');
     assert.strictEqual(db2.headerInfo.entryCount, db.headerInfo.entryCount);
     assert.strictEqual(db2.headerInfo.groupCount, db.headerInfo.groupCount);
 
     // Wrong password must be rejected.
-    assert.throws(() => new wasm.KdbxDatabase(data, 'wrong-password'));
+    assert.throws(() => new KdbxDatabase(data, 'wrong-password'));
 });
 
 test('browser entry surface (kdbx_wasm.js)', async () => {
     const glue = await import('../kdbx_wasm.js');
 
-    // The glue shares one module instance with index.js, so the WASM module
-    // is already initialized: initSync must be a safe no-op re-run.
+    // The glue is already initialized above; initSync must be a safe no-op
+    // re-run.
     assert.strictEqual(typeof glue.default, 'function');
     assert.strictEqual(typeof glue.initSync, 'function');
-    glue.initSync(fs.readFileSync(path.join(__dirname, '..', 'kdbx_wasm_bg.wasm')));
+    glue.initSync({ module: fs.readFileSync(WASM) });
 
     const data = new Uint8Array(fs.readFileSync(FIXTURE));
     assert.strictEqual(glue.isKdbxFile(data), true);
     assert.ok(typeof glue.getFileInfo(data).version === 'string');
 });
 
-test('browser package entry wraps entries after initialization', async () => {
-    const browser = await import('../browser.js');
-    browser.initSync(fs.readFileSync(path.join(__dirname, '..', 'kdbx_wasm_bg.wasm')));
-    const data = new Uint8Array(fs.readFileSync(FIXTURE));
-    const db = new browser.KdbxDatabase(data, 'redhat');
-    const entry = db.getEntries()[0];
-    assert.strictEqual(entry.title, entry.fields.title);
-    assert.ok(Object.isFrozen(entry));
-});

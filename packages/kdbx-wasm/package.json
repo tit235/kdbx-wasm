@@ -4,28 +4,35 @@
   "description": "KDBX password database parser for JavaScript/WebAssembly - Fast and secure KeePass KDBX 4 file parser",
   "type": "module",
   "main": "./index.js",
-  "module": "./kdbx_wasm.js",
+  "module": "./index.js",
   "types": "./index.d.ts",
   "exports": {
     ".": {
       "types": "./index.d.ts",
       "node": "./index.js",
-      "default": "./kdbx_wasm.js"
+      "default": "./index.js"
     },
     "./kdbx_wasm.js": "./kdbx_wasm.js",
-    "./kdbx_wasm_bg.wasm": "./kdbx_wasm_bg.wasm",
+    "./kdbx_wasm_bg.wasm": {
+      "types": "./kdbx_wasm_bg.wasm.d.ts",
+      "default": "./kdbx_wasm_bg.wasm"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "index.js",
+    "database.js",
+    "entry-fields.js",
     "index.d.ts",
     "kdbx_wasm.js",
     "kdbx_wasm_bg.wasm",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "kdbx_wasm_bg.wasm.d.ts"
   ],
   "scripts": {
-    "test": "node --test tests/smoke.test.js"
+    "test": "node --test tests/smoke.test.js",
+    "benchmark": "node ../../benchmarks/open-db.mjs"
   },
   "keywords": [
     "kdbx",

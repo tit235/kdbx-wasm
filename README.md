@@ -46,13 +46,17 @@ Node.js **19+** (ESM only; uses the global `crypto` module for random number gen
 
 ---
 
-## Quick Start — Node.js
+## Quick Start — Node.js / bundlers
 
-The WASM module loads synchronously on import — no init call needed.
+Import the WASM binary as an asset and initialize it once. This requires a
+bundler that supports WebAssembly imports; the binary is
+exposed as `wasm` for explicit initialization.
 
 ```js
 import { readFileSync, writeFileSync } from 'node:fs';
-import { KdbxDatabase, isKdbxFile, getFileInfo } from 'kdbx-wasm';
+import { initSync, KdbxDatabase, isKdbxFile, getFileInfo, wasm as wasmBinary } from 'kdbx-wasm';
+
+initSync({ module: wasmBinary });
 
 // 1. Read the file
 const data = new Uint8Array(readFileSync('passwords.kdbx'));
@@ -123,7 +127,7 @@ In browsers the WASM module loads asynchronously — call the default export's `
 </script>
 ```
 
-> **How the entry is picked**: the package `exports` field routes `import 'kdbx-wasm'` to a synchronous Node.js loader on Node (no init needed) and to the fetch-based browser/bundler module everywhere else.
+> **How the entry is picked**: the package `exports` field routes `import 'kdbx-wasm'` to the single `index.js` entry. Call `initSync({ module: wasm })` with the bundled binary, or `await init()` in browser bundles.
 
 ---
 
@@ -448,9 +452,9 @@ cargo install wasm-bindgen-cli
 ```
 
 This generates:
-- `packages/kdbx-wasm/kdbx_wasm.js` — single ESM binding (browser/bundler entry, fetch-based `init()`)
+- `packages/kdbx-wasm/kdbx_wasm.js` — generated wasm-bindgen ESM glue with fetch-based `init()`
 - `packages/kdbx-wasm/kdbx_wasm_bg.wasm` — the WASM binary (one copy, shared by all entries)
-- `packages/kdbx-wasm/index.js` — Node.js ESM entry (loads the WASM synchronously via `initSync` + `fs.readFileSync`; hand-written, not generated)
+- `packages/kdbx-wasm/index.js` — package entry for Node.js/bundlers (imports the `.wasm` asset and exports `wasm`, `initSync`, and the wrapped `KdbxDatabase`; hand-written, not generated)
 
 ---
 
