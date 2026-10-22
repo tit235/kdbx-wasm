@@ -43,16 +43,22 @@ test('open, query, and round-trip export', () => {
 
     const entries = db.getEntries();
     assert.ok(entries.length > 0, 'fixture should contain entries');
-    // Passwords excluded by default.
-    assert.ok(entries.every((e) => e.password === undefined));
+    assert.ok(entries.every((e) => e.fields && !(e.fields instanceof Map)));
+    assert.ok(entries.every((e) => e.title === e.fields.title));
+    assert.ok(entries.every((e) => Object.isFrozen(e) && Object.isFrozen(e.fields)));
 
     // Sorted, stable output.
-    const titles = entries.map((e) => e.title);
+    const titles = entries.map((e) => e.fields.title?.value ?? '');
     const sorted = [...titles].sort();
     assert.deepStrictEqual(titles, sorted);
 
-    const withPw = db.getEntries(true);
-    assert.ok(withPw.some((e) => typeof e.password === 'string'));
+    const protectedEntry = entries.find((entry) => entry.fields.password?.protected);
+    assert.ok(protectedEntry, 'fixture should contain a protected password field');
+    assert.strictEqual(protectedEntry.fields.password.value, null);
+    assert.strictEqual(typeof db.getEntryField(protectedEntry.uuid, 'password'), 'string');
+    assert.strictEqual(protectedEntry.password.reveal(), db.getEntryField(protectedEntry.uuid, 'password'));
+    assert.strictEqual(protectedEntry.password.value, null, 'reveal must not cache plaintext');
+    assert.ok(Object.isFrozen(protectedEntry.password));
 
     const groups = db.getGroups();
     assert.ok(groups.length > 0);
@@ -83,4 +89,14 @@ test('browser entry surface (kdbx_wasm.js)', async () => {
     const data = new Uint8Array(fs.readFileSync(FIXTURE));
     assert.strictEqual(glue.isKdbxFile(data), true);
     assert.ok(typeof glue.getFileInfo(data).version === 'string');
+});
+
+test('browser package entry wraps entries after initialization', async () => {
+    const browser = await import('../browser.js');
+    browser.initSync(fs.readFileSync(path.join(__dirname, '..', 'kdbx_wasm_bg.wasm')));
+    const data = new Uint8Array(fs.readFileSync(FIXTURE));
+    const db = new browser.KdbxDatabase(data, 'redhat');
+    const entry = db.getEntries()[0];
+    assert.strictEqual(entry.title, entry.fields.title);
+    assert.ok(Object.isFrozen(entry));
 });
