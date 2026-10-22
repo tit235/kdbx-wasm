@@ -78,9 +78,9 @@ console.log('Database name:', db.metadata.databaseName);
 console.log('Entries:', db.headerInfo.entryCount);
 console.log('Groups:', db.headerInfo.groupCount);
 
-// 6. List all entries (passwords excluded by default)
+// 6. List all entries (protected values are not included in snapshots)
 for (const entry of db.getEntries()) {
-    console.log(entry.title, '-', entry.username);
+    console.log(entry.title?.value, '-', entry.username?.value);
 }
 
 // 7. List all groups
@@ -117,7 +117,7 @@ In browsers the WASM module loads asynchronously — call the default export's `
     const entries = db.getEntries();
 
     for (const entry of entries) {
-      console.log(entry.title, entry.username);
+      console.log(entry.title?.value, entry.username?.value);
     }
   });
 </script>
@@ -134,42 +134,33 @@ In browsers the WASM module loads asynchronously — call the default export's `
 ```js
 const db = new KdbxDatabase(data, 'password');
 
-// Get all entries (passwords hidden by default)
+// Get all entries. Protected field values are hidden from snapshots.
 const entries = db.getEntries();
 
-// Include passwords
-const entriesWithPw = db.getEntries(true);
-
 // Get a single entry by UUID
-const entry = db.getEntry('550e8400-e29b-41d4-a716-446655440000', true);
-console.log(entry.title);      // "GitHub"
-console.log(entry.username);   // "myuser"
-console.log(entry.password);   // "secret123"
-console.log(entry.url);        // "https://github.com"
-console.log(entry.notes);      // "2FA enabled"
-console.log(entry.tags);       // ["work", "dev"]
+const entry = db.getEntry('550e8400-e29b-41d4-a716-446655440000');
+console.log(entry.title?.value);      // "GitHub"
+console.log(entry.username?.value);   // "myuser"
+console.log(entry.url?.value);        // "https://github.com"
+console.log(entry.notes?.value);      // "2FA enabled"
+console.log(entry.tags);              // ["work", "dev"]
 
-// Custom fields are plain Objects (not Map)
-console.log(entry.customFields);
-// { "otp": "otpauth://...", "env": "production" }
-console.log(Object.keys(entry.customFields));  // ["otp", "env"]
+// All fields use camelCase keys. Protected values require explicit reveal().
+console.log(entry.fields.otpSecret?.value);
+const password = entry.password?.reveal();
 ```
 
 ### Search entries
 
 ```js
-// Simple full-text search (searches title, username, URL, notes, tags, custom field VALUES)
+// Simple full-text search (searches non-protected fields and tags)
 const results = db.searchEntries('github');
-
-// Include passwords in search results
-const resultsWithPw = db.searchEntries('github', true);
 
 // Advanced search with filters
 const advanced = db.searchEntriesAdvanced(
     'github',           // text query (optional)
     groupUuid,          // limit to a specific group (optional)
-    true,               // exclude expired entries (optional)
-    false               // include passwords (optional)
+    true                // exclude expired entries (optional)
 );
 ```
 
@@ -316,14 +307,15 @@ new KdbxDatabase(data: Uint8Array, password?: string, keyFile?: Uint8Array)
 
 | Method | Returns | Description |
 |---|---|---|
-| `getEntries(includePassword?)` | `KdbxEntry[]` | All entries. Passwords excluded by default. |
-| `getEntry(uuid, includePassword?)` | `KdbxEntry` | Single entry by UUID |
+| `getEntries()` | `KdbxEntry[]` | All entries. Protected values are excluded from snapshots. |
+| `getEntry(uuid)` | `KdbxEntry` | Single entry by UUID |
 | `getGroups()` | `KdbxGroup[]` | All groups |
 | `getGroup(uuid)` | `KdbxGroup` | Single group by UUID |
-| `getEntriesByGroup(uuid, includePassword?)` | `KdbxEntry[]` | Entries in a specific group |
+| `getEntriesByGroup(uuid)` | `KdbxEntry[]` | Entries in a specific group |
 | `getChildGroups(uuid)` | `KdbxGroup[]` | Direct child groups |
-| `searchEntries(query, includePassword?)` | `KdbxEntry[]` | Full-text search across title, username, URL, notes, tags, and **custom field values** |
-| `searchEntriesAdvanced(query?, groupUuid?, excludeExpired?, includePassword?)` | `KdbxEntry[]` | Advanced search with optional filters |
+| `searchEntries(query)` | `KdbxEntry[]` | Full-text search across non-protected fields and tags |
+| `searchEntriesAdvanced(query?, groupUuid?, excludeExpired?)` | `KdbxEntry[]` | Advanced search with optional filters |
+| `getEntryField(uuid, fieldName)` | `string \| undefined` | Fetch a field value explicitly |
 
 #### Entry Mutations
 
@@ -381,17 +373,23 @@ interface KdbxEntry {
   uuid: string;
   iconId: number;
   groupId: string;
-  title: string;
-  username?: string;
-  password?: string;   // only present when explicitly requested
-  url?: string;
-  notes?: string;
   createdAt: string;   // RFC 3339
   updatedAt: string;
   accessedAt: string;
   expiresAt?: string;
   tags: string[];
-  customFields: Record<string, string>;  // plain Object, NOT Map
+  fields: Readonly<Record<string, FieldData>>;
+  readonly title?: FieldData;
+  readonly username?: FieldData;
+  readonly password?: FieldData;
+  readonly url?: FieldData;
+  readonly notes?: FieldData;
+}
+
+interface FieldData {
+  readonly value: string | null;
+  readonly protected: boolean;
+  reveal(): string | null | undefined;
 }
 
 interface KdbxGroup {
@@ -412,6 +410,11 @@ interface KdbxMetadata {
   defaultUsername?: string;
   maintenanceHistoryDays: number;
   color?: string;
+  protectTitle: boolean;
+  protectUsername: boolean;
+  protectPassword: boolean;
+  protectUrl: boolean;
+  protectNotes: boolean;
 }
 
 interface KdbxHeaderInfo {
@@ -461,8 +464,8 @@ Requires WebAssembly support and ESM (`import`).
 
 ## Security Notes
 
-- **Passwords are never included by default**. You must explicitly pass `includePassword: true` to `getEntries()` or `getEntry()`.
-- When passwords are returned, they are **plain text strings** in JavaScript memory. They are **not** automatically cleared. Handle them carefully.
+- **Protected fields are never included in entry snapshots**. Call `entry.password?.reveal()` only when needed.
+- `reveal()` copies plaintext into JavaScript memory. It is **not** automatically cleared. Do not log or retain revealed values.
 - All cryptographic operations (AES, ChaCha20, Argon2, HMAC) run inside the WebAssembly sandbox.
 - `SecString` / `SecVec` types in Rust use `zeroize` to clear memory on drop, but this does not extend to JavaScript's string heap.
 

@@ -10,6 +10,11 @@ export class JsMetadata {
   get defaultUsername(): string | undefined;
   get maintenanceHistoryDays(): number;
   get color(): string | undefined;
+  get protectTitle(): boolean;
+  get protectUsername(): boolean;
+  get protectPassword(): boolean;
+  get protectUrl(): boolean;
+  get protectNotes(): boolean;
 }
 
 export class JsKdfParams {
