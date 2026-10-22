@@ -100,12 +100,12 @@ writeFileSync('exported.kdbx', db.toBytes('new-password'));
 
 ## Quick Start — Browser
 
-In browsers the WASM module loads asynchronously — call the default export's `init()` once before first use:
+In browsers the WASM module loads asynchronously — call `initAsync()` once before first use:
 
 ```html
 <script type="module">
-  import init, { KdbxDatabase, isKdbxFile, getFileInfo } from 'kdbx-wasm';
-  await init();
+  import { initAsync, KdbxDatabase, isKdbxFile, getFileInfo } from 'kdbx-wasm';
+  await initAsync();
 
   const input = document.getElementById('fileInput');
   input.addEventListener('change', async (e) => {
@@ -127,7 +127,7 @@ In browsers the WASM module loads asynchronously — call the default export's `
 </script>
 ```
 
-> **How the entry is picked**: the package `exports` field routes `import 'kdbx-wasm'` to the single `index.js` entry. Call `initSync({ module: wasm })` with the bundled binary, or `await init()` in browser bundles.
+> **How the entry is picked**: the package `exports` field routes `import 'kdbx-wasm'` to the single `index.js` entry. Call `initSync({ module: wasm })` with the bundled binary, or `await initAsync()` in browser bundles.
 
 ---
 

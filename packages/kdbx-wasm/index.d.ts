@@ -18,10 +18,10 @@ export class JsMetadata {
 }
 
 export class JsKdfParams {
-  get memory(): number | undefined;
-  get iterations(): number | undefined;
+  get memory(): bigint | undefined;
+  get iterations(): bigint | undefined;
   get parallelism(): number | undefined;
-  get rounds(): number | undefined;
+  get rounds(): bigint | undefined;
 }
 
 export class JsHeaderInfo {
@@ -275,12 +275,28 @@ export function isKdbxFile(data: Uint8Array): boolean;
  */
 export function getFileInfo(data: Uint8Array): JsFileInfo;
 
-/** Initialize synchronously using WASM bytes or a compiled module supplied by the caller. */
-export function initSync(module: WebAssembly.Module | ArrayBuffer | Uint8Array): void;
+/** Input accepted by the WASM initializers. */
+export type InitInput =
+  | string
+  | URL
+  | Request
+  | WebAssembly.Module
+  | ArrayBuffer
+  | Uint8Array;
 
-/** Load asynchronously using a WASM URL, request, bytes, or compiled module supplied by the caller. */
+/**
+ * Initialize synchronously using WASM bytes or a compiled module supplied by
+ * the caller. Accepts either the input directly or `{ module }`.
+ */
+export function initSync(module: InitInput | { module: InitInput }): unknown;
+
+/**
+ * Load asynchronously using a WASM URL, request, bytes, or compiled module
+ * supplied by the caller. Accepts either the input directly or
+ * `{ module_or_path }`.
+ */
 export function initAsync(
-  module_or_path: string | URL | Request | WebAssembly.Module | ArrayBuffer | Uint8Array,
+  module_or_path?: InitInput | { module_or_path?: InitInput },
 ): Promise<unknown>;
 
 /** Raw WASM binary for explicit initialization by consumers. */
