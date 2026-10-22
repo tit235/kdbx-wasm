@@ -174,45 +174,6 @@ impl EntryField {
     }
 }
 
-pub fn field_key_to_js(wire: &str) -> String {
-    match wire {
-        "Title" => return "title".into(),
-        "UserName" => return "username".into(),
-        "Password" => return "password".into(),
-        "URL" => return "url".into(),
-        "Notes" => return "notes".into(),
-        _ => {}
-    }
-    let mut out = String::new();
-    let mut upper = false;
-    for c in wire.chars() {
-        if !c.is_ascii_alphanumeric() {
-            upper = true;
-            continue;
-        }
-        if out.is_empty() {
-            out.extend(c.to_lowercase());
-        } else if upper {
-            out.extend(c.to_uppercase());
-            upper = false;
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-pub fn field_key_from_js(js: &str) -> String {
-    match js {
-        "title" => "Title".into(),
-        "username" => "UserName".into(),
-        "password" => "Password".into(),
-        "url" => "URL".into(),
-        "notes" => "Notes".into(),
-        _ => js.to_string(),
-    }
-}
-
 impl Entry {
     pub fn new(group_id: Uuid, title: String, password: SecString) -> Self {
         Self::new_with_protection(group_id, title, password, &MemoryProtection::default())

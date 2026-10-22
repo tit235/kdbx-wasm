@@ -9,7 +9,7 @@ use kdbx_core::{
     parser::{generate_kdbx, parse_kdbx},
     types::{
         CompressionAlgorithm, EncryptionAlgorithm, Entry, EntryField, Group, KdbxSession,
-        KdfAlgorithm, field_key_from_js, field_key_to_js,
+        KdfAlgorithm,
     },
 };
 
@@ -815,6 +815,45 @@ impl KdbxDatabase {
 }
 
 // ── Standalone Functions ──
+
+fn field_key_to_js(wire: &str) -> String {
+    match wire {
+        "Title" => return "title".into(),
+        "UserName" => return "username".into(),
+        "Password" => return "password".into(),
+        "URL" => return "url".into(),
+        "Notes" => return "notes".into(),
+        _ => {}
+    }
+    let mut out = String::new();
+    let mut upper = false;
+    for c in wire.chars() {
+        if !c.is_ascii_alphanumeric() {
+            upper = true;
+            continue;
+        }
+        if out.is_empty() {
+            out.extend(c.to_lowercase());
+        } else if upper {
+            out.extend(c.to_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn field_key_from_js(js: &str) -> String {
+    match js {
+        "title" => "Title".into(),
+        "username" => "UserName".into(),
+        "password" => "Password".into(),
+        "url" => "URL".into(),
+        "notes" => "Notes".into(),
+        _ => js.to_string(),
+    }
+}
 
 fn entry_title(entry: &Entry) -> &str {
     entry
